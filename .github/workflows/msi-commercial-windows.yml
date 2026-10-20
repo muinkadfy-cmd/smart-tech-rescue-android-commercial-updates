@@ -19,14 +19,14 @@ jobs:
           $ErrorActionPreference='Stop'
           $target=Join-Path $env:RUNNER_TEMP 'sarp-commercial'
           New-Item -ItemType Directory -Path $target -Force | Out-Null
-          gh release download 'v0.9.85.7.27-commercial-qa' --repo '${{ github.repository }}' --pattern 'SmartTechRescueAndroid-Comercial-0.9.120-x64-SELF-SIGNED-LAB.msi' --dir $target --clobber
+          gh release download 'v0.9.85.7.27-commercial-qa' --repo '${{ github.repository }}' --pattern 'SmartTechRescueAndroid-Comercial-0.9.120-x64.msi' --dir $target --clobber
           if($LASTEXITCODE -ne 0){throw 'DRAFT_MSI_UNAVAILABLE'}
       - name: Verify signature, MSI identity, install and uninstall
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          $msi=Join-Path $env:RUNNER_TEMP 'sarp-commercial\SmartTechRescueAndroid-Comercial-0.9.120-x64-SELF-SIGNED-LAB.msi'
-          $expectedHash='0B9B458FCE8B3B742C7EA5AB4C64E161CA7213882EF9C5DCAEA975736FC1272E'
+          $msi=Join-Path $env:RUNNER_TEMP 'sarp-commercial\SmartTechRescueAndroid-Comercial-0.9.120-x64.msi'
+          $expectedHash='B83E0E310D5FA43957ADA6D08978A6B401F321CABAB945FB600601DC1D690F76'
           $expectedSigner='B381113FB818B42A34720AE2FD4CF16484F77E5B'
           $expectedUpgrade='{9BDBF3B8-2E52-4CB5-85A0-2DA3B3B1581E}'
           if(!(Test-Path $msi)){throw 'MSI_MISSING'}
