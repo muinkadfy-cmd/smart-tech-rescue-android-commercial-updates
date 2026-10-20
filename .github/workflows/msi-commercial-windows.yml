@@ -1,0 +1,68 @@
+name: MSI Comercial - instalação Windows descartável
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  installer-smoke:
+    runs-on: windows-2022
+    timeout-minutes: 18
+    steps:
+      - name: Download private draft release MSI
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $target=Join-Path $env:RUNNER_TEMP 'sarp-commercial'
+          New-Item -ItemType Directory -Path $target -Force | Out-Null
+          gh release download 'v0.9.85.7.27-commercial-qa' --repo '${{ github.repository }}' --pattern 'SmartTechRescueAndroid-Comercial-0.9.120-x64-SELF-SIGNED-LAB.msi' --dir $target --clobber
+          if($LASTEXITCODE -ne 0){throw 'DRAFT_MSI_UNAVAILABLE'}
+      - name: Verify signature, MSI identity, install and uninstall
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $msi=Join-Path $env:RUNNER_TEMP 'sarp-commercial\SmartTechRescueAndroid-Comercial-0.9.120-x64-SELF-SIGNED-LAB.msi'
+          $expectedHash='0B9B458FCE8B3B742C7EA5AB4C64E161CA7213882EF9C5DCAEA975736FC1272E'
+          $expectedSigner='B381113FB818B42A34720AE2FD4CF16484F77E5B'
+          $expectedUpgrade='{9BDBF3B8-2E52-4CB5-85A0-2DA3B3B1581E}'
+          if(!(Test-Path $msi)){throw 'MSI_MISSING'}
+          if((Get-FileHash $msi -Algorithm SHA256).Hash -ne $expectedHash){throw 'MSI_DIGEST_INVALID'}
+          $sig=Get-AuthenticodeSignature -LiteralPath $msi
+          if(!$sig.SignerCertificate -or $sig.SignerCertificate.Thumbprint -ne $expectedSigner -or $sig.Status -in @('NotSigned','HashMismatch')){throw 'MSI_SIGNER_INVALID'}
+          Write-Host "CERTIFICATE_PIN=PASS (NO_PUBLIC_TRUST)"
+          $installer=New-Object -ComObject WindowsInstaller.Installer
+          $db=$installer.OpenDatabase($msi,0)
+          $view=$db.OpenView('SELECT * FROM Property')
+          $null=$view.Execute()
+          $props=@{}
+          while($rec=$view.Fetch()){$props[$rec.StringData(1)]=$rec.StringData(2)}
+          $null=$view.Close()
+          if($props['ProductName'] -ne 'Smart Tech Rescue Android Comercial' -or $props['ProductVersion'] -ne '0.9.120'){throw 'MSI_PRODUCT_PROPERTIES_INVALID'}
+          if($props['UpgradeCode'].ToUpperInvariant() -ne $expectedUpgrade -and $props['UpgradeCode'].Trim('{}').ToUpperInvariant() -ne $expectedUpgrade.Trim('{}')){throw 'MSI_UPGRADE_CODE_INVALID'}
+          $productCode=$props['ProductCode']
+          if($productCode -notmatch '^[{]?[A-Fa-f0-9-]{36}[}]?$'){throw 'MSI_PRODUCT_CODE_INVALID'}
+          $exe='C:\Program Files\Smart Tech Rolândia\Smart Tech Rescue Android Comercial\SmartAndroidRescuePro.exe'
+          $offline='C:\Program Files\Smart Tech Rolândia\Smart Android Rescue Pro\SmartAndroidRescuePro.exe'
+          if(Test-Path $offline){throw 'UNEXPECTED_OFFLINE_INSTALL_ON_CLEAN_RUNNER'}
+          $installLog=Join-Path $env:RUNNER_TEMP 'sarp-commercial-install.log'
+          $uninstallLog=Join-Path $env:RUNNER_TEMP 'sarp-commercial-uninstall.log'
+          try {
+            $process=Start-Process msiexec.exe -Wait -PassThru -ArgumentList @('/i',"`"$msi`"","/qn","/norestart","/l*v", "`"$installLog`"")
+            Write-Host "MSI_INSTALL_EXIT=$($process.ExitCode)"
+            if($process.ExitCode -ne 0){throw 'MSI_INSTALL_FAILED'}
+            if(!(Test-Path $exe)){throw 'COMMERCIAL_EXE_NOT_INSTALLED'}
+            if((Get-Item $exe).VersionInfo.ProductVersion -ne '0.9.85.7.27'){throw 'COMMERCIAL_APPLICATION_VERSION_MISMATCH'}
+            if(Test-Path $offline){throw 'OFFLINE_EDITION_AFFECTED'}
+            Write-Host 'COMMERCIAL_INSTALL_FILES_VERSION_AND_ISOLATION=PASS'
+          } finally {
+            $process=Start-Process msiexec.exe -Wait -PassThru -ArgumentList @('/x',$productCode,"/qn","/norestart","/l*v", "`"$uninstallLog`"")
+            Write-Host "MSI_UNINSTALL_EXIT=$($process.ExitCode)"
+            if($process.ExitCode -ne 0){throw 'MSI_UNINSTALL_FAILED'}
+          }
+          if(Test-Path $exe){throw 'COMMERCIAL_EXE_REMAINS_AFTER_UNINSTALL'}
+          if(Test-Path $offline){throw 'OFFLINE_EDITION_AFFECTED'}
+          Write-Host 'COMMERCIAL_WINDOWS_MSI_INSTALL_UNINSTALL=PASS'
