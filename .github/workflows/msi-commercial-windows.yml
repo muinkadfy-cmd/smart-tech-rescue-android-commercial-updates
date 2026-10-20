@@ -56,6 +56,10 @@ jobs:
             if($process.ExitCode -ne 0){throw 'MSI_INSTALL_FAILED'}
             if(!(Test-Path $exe)){throw 'COMMERCIAL_EXE_NOT_INSTALLED'}
             if((Get-Item $exe).VersionInfo.ProductVersion -ne '0.9.85.7.27'){throw 'COMMERCIAL_APPLICATION_VERSION_MISMATCH'}
+            $fileText=[Text.Encoding]::UTF8.GetString([IO.File]::ReadAllBytes($exe))
+            if(!$fileText.Contains('SARP_COMMERCIAL_LICENSED_BUILD_V1')){throw 'OFFLINE_EXE_MISPACKAGED_AS_COMMERCIAL'}
+            if(!$fileText.Contains('smart-tech-rescue-license-prod.muinkadfy.workers.dev')){throw 'WRONG_LICENSE_SERVER_IN_COMMERCIAL_EXE'}
+            Write-Host 'SIGNED_COMMERCIAL_BUILD_MARKER_AND_PRODUCTION_LICENSE_ENDPOINT=PASS'
             if(Test-Path $offline){throw 'OFFLINE_EDITION_AFFECTED'}
             Write-Host 'COMMERCIAL_INSTALL_FILES_VERSION_AND_ISOLATION=PASS'
           } finally {
