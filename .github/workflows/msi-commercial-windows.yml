@@ -2,6 +2,27 @@ name: MSI Comercial - instalação Windows descartável
 
 on:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Tag do release comercial'
+        required: true
+        type: string
+      msi_name:
+        description: 'Nome do MSI comercial'
+        required: true
+        type: string
+      sha256_msi:
+        description: 'SHA256 do MSI'
+        required: true
+        type: string
+      app_version:
+        description: 'ProductVersion'
+        required: true
+        type: string
+      msi_version:
+        description: 'Versao do Windows Installer'
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -9,6 +30,12 @@ permissions:
 jobs:
   installer-smoke:
     runs-on: windows-2022
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      MSI_NAME: ${{ inputs.msi_name }}
+      MSI_SHA256: ${{ inputs.sha256_msi }}
+      APP_VERSION: ${{ inputs.app_version }}
+      MSI_VERSION: ${{ inputs.msi_version }}
     timeout-minutes: 18
     steps:
       - name: Download private draft release MSI
@@ -19,14 +46,17 @@ jobs:
           $ErrorActionPreference='Stop'
           $target=Join-Path $env:RUNNER_TEMP 'sarp-commercial'
           New-Item -ItemType Directory -Path $target -Force | Out-Null
-          gh release download 'v0.9.85.7.27-commercial-qa' --repo '${{ github.repository }}' --pattern 'SmartTechRescueAndroid-Comercial-0.9.120-x64.msi' --dir $target --clobber
+          if($env:RELEASE_TAG -notmatch '^v0[.]9[.]85[.]7[.][0-9]+-commercial-selfsigned$' -and $env:RELEASE_TAG -ne 'v0.9.85.7.27-commercial-qa'){throw 'INVALID_RELEASE_TAG'}
+          if($env:MSI_NAME -notmatch '^SmartTechRescueAndroid-Comercial-0[.]9[.][0-9]+-AUTOASSINADO-MANUAL[.]msi$' -and $env:MSI_NAME -ne 'SmartTechRescueAndroid-Comercial-0.9.120-x64.msi'){throw 'INVALID_MSI_FILENAME'}
+          gh release download $env:RELEASE_TAG --repo '${{ github.repository }}' --pattern $env:MSI_NAME --dir $target --clobber
           if($LASTEXITCODE -ne 0){throw 'DRAFT_MSI_UNAVAILABLE'}
       - name: Verify signature, MSI identity, install and uninstall
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          $msi=Join-Path $env:RUNNER_TEMP 'sarp-commercial\SmartTechRescueAndroid-Comercial-0.9.120-x64.msi'
-          $expectedHash='B83E0E310D5FA43957ADA6D08978A6B401F321CABAB945FB600601DC1D690F76'
+          $msi=Join-Path (Join-Path $env:RUNNER_TEMP 'sarp-commercial') $env:MSI_NAME
+          if($env:MSI_SHA256 -notmatch '^[A-Fa-f0-9]{64}$' -or $env:APP_VERSION -notmatch '^0[.]9[.]85[.]7[.][0-9]+$' -or $env:MSI_VERSION -notmatch '^0[.]9[.][0-9]+$'){throw 'INVALID_WORKFLOW_INPUT'}
+          $expectedHash=$env:MSI_SHA256.ToUpperInvariant()
           $expectedSigner='B381113FB818B42A34720AE2FD4CF16484F77E5B'
           $expectedUpgrade='{9BDBF3B8-2E52-4CB5-85A0-2DA3B3B1581E}'
           if(!(Test-Path $msi)){throw 'MSI_MISSING'}
@@ -41,7 +71,7 @@ jobs:
           $props=@{}
           while($rec=$view.Fetch()){$props[$rec.StringData(1)]=$rec.StringData(2)}
           $null=$view.Close()
-          if($props['ProductName'] -ne 'Smart Tech Rescue Android Comercial' -or $props['ProductVersion'] -ne '0.9.120'){throw 'MSI_PRODUCT_PROPERTIES_INVALID'}
+          if($props['ProductName'] -ne 'Smart Tech Rescue Android Comercial' -or $props['ProductVersion'] -ne $env:MSI_VERSION){throw 'MSI_PRODUCT_PROPERTIES_INVALID'}
           if($props['UpgradeCode'].ToUpperInvariant() -ne $expectedUpgrade -and $props['UpgradeCode'].Trim('{}').ToUpperInvariant() -ne $expectedUpgrade.Trim('{}')){throw 'MSI_UPGRADE_CODE_INVALID'}
           $productCode=$props['ProductCode']
           if($productCode -notmatch '^[{]?[A-Fa-f0-9-]{36}[}]?$'){throw 'MSI_PRODUCT_CODE_INVALID'}
@@ -55,7 +85,7 @@ jobs:
             Write-Host "MSI_INSTALL_EXIT=$($process.ExitCode)"
             if($process.ExitCode -ne 0){throw 'MSI_INSTALL_FAILED'}
             if(!(Test-Path $exe)){throw 'COMMERCIAL_EXE_NOT_INSTALLED'}
-            if((Get-Item $exe).VersionInfo.ProductVersion -ne '0.9.85.7.27'){throw 'COMMERCIAL_APPLICATION_VERSION_MISMATCH'}
+            if((Get-Item $exe).VersionInfo.ProductVersion -ne $env:APP_VERSION){throw 'COMMERCIAL_APPLICATION_VERSION_MISMATCH'}
             $fileText=[Text.Encoding]::UTF8.GetString([IO.File]::ReadAllBytes($exe))
             if(!$fileText.Contains('SARP_COMMERCIAL_LICENSED_BUILD_V1')){throw 'OFFLINE_EXE_MISPACKAGED_AS_COMMERCIAL'}
             $utf16Text=[Text.Encoding]::Unicode.GetString([IO.File]::ReadAllBytes($exe))
