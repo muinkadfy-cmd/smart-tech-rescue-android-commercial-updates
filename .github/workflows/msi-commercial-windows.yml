@@ -38,6 +38,8 @@ jobs:
       MSI_VERSION: ${{ inputs.msi_version }}
     timeout-minutes: 18
     steps:
+      - name: Check out QA-only workflow branch
+        uses: actions/checkout@v4
       - name: Download private draft release MSI
         shell: pwsh
         env:
@@ -101,3 +103,11 @@ jobs:
           if(Test-Path $exe){throw 'COMMERCIAL_EXE_REMAINS_AFTER_UNINSTALL'}
           if(Test-Path $offline){throw 'OFFLINE_EDITION_AFFECTED'}
           Write-Host 'COMMERCIAL_WINDOWS_MSI_INSTALL_UNINSTALL=PASS'
+      - name: QA Lot138 — real MSI 120 to 121 upgrade, local DPAPI fixture and rollback
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          & (Join-Path $env:GITHUB_WORKSPACE '.github\scripts\qa-upgrade-lot138.ps1')
+          if($LASTEXITCODE -ne 0){throw 'LOT138_UPGRADE_QA_SCRIPT_FAILED'}
